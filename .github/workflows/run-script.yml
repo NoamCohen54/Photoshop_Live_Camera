@@ -1,0 +1,31 @@
+name: Run Python Script
+
+on:
+  push:
+    branches:
+      - main  # הריצה תתבצע כשיש שינויים בסניף 'main'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest  # פועל בסביבת לינוקס
+
+    steps:
+      # שלב 1: משיכה של הקוד (checkout)
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # שלב 2: התקנת Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'  # או גרסה אחרת שאתה רוצה
+
+      # שלב 3: התקנת חבילות תלות
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt  # התקנת חבילות מהקובץ requirements.txt שלך
+
+      # שלב 4: הרצת הסקריפט שלך
+      - name: Run Python script
+        run: |
+          python your_script.py  # הרץ את הקוד הראשי שלך
