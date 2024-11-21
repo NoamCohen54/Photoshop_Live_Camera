@@ -3,6 +3,7 @@ transformers
 torch
 torchvision
 deepface
+IPython
 Pillow
 matplotlib
-ipython
+numpy
