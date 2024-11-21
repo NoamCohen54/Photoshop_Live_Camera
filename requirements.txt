@@ -1,0 +1,8 @@
+diffusers
+transformers
+torch
+torchvision
+deepface
+Pillow
+matplotlib
+ipython
