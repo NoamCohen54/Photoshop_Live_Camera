@@ -95,7 +95,7 @@ def webcam_interface():
             }
             /* עיצוב הודעת אזהרה */
             .user-notification {
-                font-size: 28px;
+                font-size: 24px;
                 color: red;
                 font-weight: bold;
                 background-color: black;
@@ -106,8 +106,8 @@ def webcam_interface():
                 margin-bottom: 20px;
             }
 
-        </style>
 
+        </style>
         <div class="user-notification">תיתכן האפשרות שהרקע לא יהיה הכי דומה לרגש שזוהה</div>
         <div class="glasses-warning">שים לב! מומלץ להוריד משקפיים כדי לקבל תוצאה טובה יותר</div>
 
@@ -231,15 +231,6 @@ def webcam_interface():
             function shutDownCamera() {
                 stopCamera();
                 alert("תודה שהשתמשת בי! מוזמן לחזור בכל עת 😊");
-                
-                setTimeout(function() {
-                    const userResponse = confirm("האם תרצה להדליק את המצלמה שוב?");
-                    if (userResponse) {
-                        startCamera();
-                    } else {
-                        alert("תודה שהשתמשת בי! מוזמן לחזור בכל עת 😊");
-                    }
-                }, 90000); // אחרי 90 שניות
             }
 
             // הפעלת המצלמה אוטומטית כשמוצג הממשק
@@ -248,18 +239,99 @@ def webcam_interface():
     '''))
 
 # פונקציה לשמירת תמונה מבסיס נתונים
-def save_image_from_base64(base64_string):
-    img_data = base64.b64decode(base64_string.split(',')[1])
-    img = Image.open(BytesIO(img_data))
-    img_path = get_image_path()
-    img.save(img_path)
-    print(f"Image saved as {img_path}")
-    return img_path
+def save_image_from_base64(base64_str, filename):
+    img_data = base64.b64decode(base64_str.split(',')[1])
+    image = Image.open(BytesIO(img_data))
+    image.save(filename)
 
-# פונקציה לעיבוד רגשות בתמונה
-def analyze_emotions(image_path):
-    analysis = DeepFace.analyze(image_path, actions=['emotion'])
-    return analysis
+# פונקציה שמטפלת בתפיסת תמונה
+def capture_image(base64_str):
+    image_path = get_image_path()
+    save_image_from_base64(base64_str, image_path)
+    print(f"Image captured and saved as {image_path}")
+    detect_and_display_emotions(image_path)
 
-# הפעלת המצלמה והכפתורים
+output.register_callback('notebook.capture_image', capture_image)
+
+# פונקציות לעיבוד תמונה וסגמנטציה
+def preprocess_image_for_segmentation(image):
+    preprocess = T.Compose([
+        T.Resize((520, 520)),
+        T.ToTensor(),
+        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    return preprocess(image).unsqueeze(0)
+
+def get_segmentation_mask(image):
+    image_rgb = image.convert("RGB")
+    input_tensor = preprocess_image_for_segmentation(image_rgb)
+    with torch.no_grad():
+        output = segmentation_model(input_tensor)['out'][0]
+    output_predictions = output.argmax(0).byte().cpu().numpy()
+    mask = np.where(output_predictions == 15, 255, 0).astype(np.uint8)
+    return mask
+
+# פונקציה לניתוח רגשות ושינוי רקע
+def detect_and_display_emotions(image_path):
+    emotion_analysis = DeepFace.analyze(image_path, actions=['emotion'])
+
+    # הצגת גרף הרגשות
+    emotions = emotion_analysis[0]['emotion']
+    predominant_emotion = max(emotions, key=emotions.get)
+
+    # שמירת גרף הרגשות
+    graph_path = f"{base_dir}/image_{image_counter - 1}/graphs/emotions_graph.png"
+    os.makedirs(os.path.dirname(graph_path), exist_ok=True)
+    plt.bar(emotions.keys(), emotions.values(), color='blue')
+    plt.xlabel('Emotions')
+    plt.ylabel('Scores')
+    plt.title('Emotion Analysis')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(graph_path)
+    plt.close()
+
+    print(f"Predominant Emotion: {predominant_emotion}")
+
+    # יצירת רקע על סמך הרגש
+    prompt = f"Create a background image that represents the feeling of {predominant_emotion}"
+    result_image = pipe(prompt, num_inference_steps=50).images[0]
+
+    # שמירת הרקע שנוצר
+    background_image_path = f"{base_dir}/image_{image_counter - 1}/generated_background/background_{predominant_emotion}.png"
+    os.makedirs(os.path.dirname(background_image_path), exist_ok=True)
+    result_image.save(background_image_path)
+    print(f"Generated background image saved as {background_image_path}")
+
+    # שילוב הדמות על הרקע ושמירת התוצאה הסופית
+    final_image_path = composite_person_on_background(image_path, background_image_path)
+    print(f"Final image saved as {final_image_path}")
+
+def composite_person_on_background(captured_image_path, background_image_path):
+    # פתיחת התמונות שהתקבלו (תמונה של האדם והרקע)
+    person_img = Image.open(captured_image_path).convert("RGBA")
+    background_img = Image.open(background_image_path).convert("RGBA")
+
+    # שינוי גודל הרקע כך שיתאים לגודל התמונה של האדם
+    background_resized = background_img.resize(person_img.size, Image.LANCZOS)
+
+    # יצירת מסכת סגמנטציה כדי להפריד את הדמות מהרקע
+    mask = get_segmentation_mask(person_img)
+    mask_img = Image.fromarray(mask).convert("L").resize(person_img.size, Image.LANCZOS)
+
+    # יצירת התמונה המשולבת עם המסכה על הרקע
+    person_with_mask = Image.composite(person_img, background_resized, mask_img)
+
+    # שמירת התמונה המשותפת בנתיב הנכון
+    final_image_path = f"{base_dir}/image_{image_counter - 1}/final_composite_image/final_composite_image.png"
+
+    # יצירת תיקייה אם לא קיימת והצלת התמונה
+    os.makedirs(os.path.dirname(final_image_path), exist_ok=True)
+    person_with_mask.save(final_image_path)
+
+    # החזרת נתיב התמונה הסופית
+    return final_image_path
+
+
+# הצגת ממשק המצלמה
 webcam_interface()
