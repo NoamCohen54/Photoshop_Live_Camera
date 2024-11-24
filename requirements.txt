@@ -1,1 +1,1 @@
-
+pip install diffusers transformers torch torchvision deepface
